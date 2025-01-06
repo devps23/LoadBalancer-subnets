@@ -5,6 +5,7 @@ resource "aws_vpc" "vpc" {
     Name = "${var.env}-vpc"
   }
 }
+# **********************  public,frontend,backend,db subnets **********************************************
 # create public subnets
 resource "aws_subnet" "public_subnets" {
   count         =  length(var.public_subnets)
@@ -37,6 +38,18 @@ resource "aws_subnet" "backend_subnets" {
     Name = "${var.env}-backend-subnet-${count.index+1}"
   }
 }
+# create mydql subnets
+resource "aws_subnet" "db_subnets" {
+  count        = length(var.db_subnets)
+  vpc_id       = aws_vpc.vpc.id
+  cidr_block   = var.db_subnets[count.index]
+  availability_zone = var.availability_zones[count.index]
+
+  tags = {
+    Name = "${var.env}-backend-subnet-${count.index+1}"
+  }
+}
+# ******************************************* peer connection between two vpc's here default vpc and with custom vpc**************************
 # create peer connection between two vpc ids
 resource "aws_vpc_peering_connection" "peer" {
   peer_vpc_id   = var.default_vpc_id
@@ -54,6 +67,20 @@ resource "aws_internet_gateway" "gw" {
     Name = "${var.env}-igw"
   }
 }
+//create nat gateway
+resource "aws_nat_gateway" "nat" {
+  count = length(var.public_subnets)
+  allocation_id = aws_eip.eip[count.index].id
+  subnet_id     = aws_subnet.public_subnets[count.index].id
+  tags = {
+    Name = "${var.env}-nat-${count.index+1}"
+  }
+}
+resource "aws_eip" "eip" {
+  count = length(var.public_subnets)
+  domain   = "vpc"
+}
+# *********************************** public,frontend,backend,db route table ******************************************************
 # create a route table
 resource "aws_route_table" "public_route_table" {
   count = length(var.public_subnets)
@@ -66,19 +93,7 @@ resource "aws_route_table" "public_route_table" {
     Name = "${var.env}-public route-table-${count.index+1}"
   }
 }
-//create nat gateway
-resource "aws_nat_gateway" "nat" {
-  count = length(var.public_subnets)
-  allocation_id = aws_eip.eip[count.index].id
-  subnet_id     = aws_subnet.public_subnets[count.index].id
-  tags = {
-    Name = "${var.env}-nat-${count.index+1}"
-  }
-}
-  resource "aws_eip" "eip" {
-    count = length(var.public_subnets)
-    domain   = "vpc"
-}
+
 //create private route table
 resource "aws_route_table" "frontend_route_table" {
   count = length(var.frontend_subnets)
@@ -103,6 +118,19 @@ resource "aws_route_table" "backend_route_table" {
     Name = "${var.env}-route-table-${count.index+1}"
   }
 }
+# create db route table
+resource "aws_route_table" "db_route_table" {
+  count = length(var.db_subnets)
+  vpc_id = aws_vpc.vpc.id
+  route {
+    cidr_block = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nat[count.index].id
+  }
+  tags = {
+    Name = "${var.env}-route-table-${count.index+1}"
+  }
+}
+# *********************************** associate route table with public,frontend,backend,db ********************************************
 # associate route table id to subnet id
 resource "aws_route_table_association" "public-route-association" {
   count = length(var.public_subnets)
@@ -120,6 +148,20 @@ resource "aws_route_table_association" "backend-route-association" {
   subnet_id      = aws_subnet.backend_subnets[count.index].id
   route_table_id = aws_route_table.backend_route_table[count.index].id
 }
+# associte route table to db subnets id
+resource "aws_route_table_association" "db-route-association" {
+  count = length(var.db_subnets)
+  subnet_id      = aws_subnet.db_subnets[count.index].id
+  route_table_id = aws_route_table.backend_route_table[count.index].id
+}
+# ******************************* edit the route for public,frontend,backend,db *******************************************************
+# edit the public subnets route
+resource "aws_route" "public_route" {
+  count = length(var.public_subnets)
+  route_table_id = aws_route_table.public_route_table[count.index].id
+  destination_cidr_block = var.default_vpc_cidr_block
+  vpc_peering_connection_id = aws_vpc_peering_connection.peer.id
+}
 # edit the route
 resource "aws_route" "frontend_route" {
   count = length(var.frontend_subnets)
@@ -134,11 +176,23 @@ resource "aws_route" "backend_route" {
   destination_cidr_block = var.default_vpc_cidr_block
   vpc_peering_connection_id = aws_vpc_peering_connection.peer.id
 }
-# default edit route
-resource "aws_route" "default_route" {
-  count = length(var.frontend_subnets)
-  route_table_id = var.default_route_table_id
-  destination_cidr_block = var.frontend_subnets[count.index]
+# edit mysql route
+resource "aws_route" "db_route" {
+  count = length(var.db_subnets)
+  route_table_id = aws_route_table.db_route_table[count.index].id
+  destination_cidr_block = var.default_vpc_cidr_block
   vpc_peering_connection_id = aws_vpc_peering_connection.peer.id
 }
-
+# *******************************************************************************************************************
+# default edit route
+# resource "aws_route" "default_route" {
+#   count = length(var.frontend_subnets)
+#   route_table_id = var.default_route_table_id
+#   destination_cidr_block = var.frontend_subnets[count.index]
+#   vpc_peering_connection_id = aws_vpc_peering_connection.peer.id
+# }
+resource "aws_route" "default-vpc" {
+  route_table_id            = var.default_route_table_id
+  vpc_peering_connection_id = aws_vpc_peering_connection.peer.id
+  destination_cidr_block    = var.vpc_cidr_block
+}

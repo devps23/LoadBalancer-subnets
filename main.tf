@@ -13,7 +13,7 @@ module "vpc" {
  availability_zones = var.availability_zones
 }
 module "frontend"{
-  depends_on = [module.backend]
+#   depends_on = [module.backend]
   source = "./modules/app"
   env    = var.env
   instance_type = var.instance_type
@@ -31,25 +31,25 @@ module "frontend"{
   bastion_nodes = var.bastion_nodes
   lb_cidr_block = ["0.0.0.0/0"]
 }
-module "backend"{
-#   depends_on = [module.mysql]
-  source = "./modules/app"
-  env    = var.env
-  instance_type = var.instance_type
-  subnet_id = module.vpc.backend_subnets
-  vpc_id = module.vpc.vpc_id
-  component = "backend"
-  lb_type = "private"
-  zone_id = var.zone_id
-  lb_subnets = module.vpc.backend_subnets
-  lb_needed = true
-  app_port = 8080
-  vault_token=var.vault_token
-  server_app_port = concat(var.frontend_subnets,var.backend_subnets)
-  bastion_nodes = var.bastion_nodes
-  lb_cidr_block = var.frontend_subnets
-
-}
+# module "backend"{
+# #   depends_on = [module.mysql]
+#   source = "./modules/app"
+#   env    = var.env
+#   instance_type = var.instance_type
+#   subnet_id = module.vpc.backend_subnets
+#   vpc_id = module.vpc.vpc_id
+#   component = "backend"
+#   lb_type = "private"
+#   zone_id = var.zone_id
+#   lb_subnets = module.vpc.backend_subnets
+#   lb_needed = true
+#   app_port = 8080
+#   vault_token=var.vault_token
+#   server_app_port = concat(var.frontend_subnets,var.backend_subnets)
+#   bastion_nodes = var.bastion_nodes
+#   lb_cidr_block = var.frontend_subnets
+#
+# }
 # module "mysql"{
 #   source = "./modules/app"
 #   env    = var.env
